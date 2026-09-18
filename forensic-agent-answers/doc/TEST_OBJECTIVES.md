@@ -34,6 +34,32 @@ Two distinct ways it's used, and both are now decided:
    themselves stay valid either way, since case-design input (above) never
    depended on AUT enrichment in the first place.
 
+   **Delivery mechanism (noted 2026-09-09, see `../../EVAL_SUITE_PLAN.md`):**
+   this decision was adopted without a concrete way to hand the skills to
+   an AUT at run time. There now is one, contingent on the harness's
+   still-open framework choice — EvalScope's
+   `NativeAgentConfig(skills_dir=...)` reads host folders containing
+   `SKILL.md` natively, no scaffolding required. Two things this raises
+   that belong to *this* document rather than the harness plan:
+
+   - **Which skills get mounted is a test-design question, not a config
+     detail.** Mounting a category-matched subset would tell the AUT which
+     of the nine categories below the case belongs to — a hint it isn't
+     supposed to have, and one that partly answers the question the case
+     is asking. Mounting all 818 avoids the leak but changes what's
+     measured (skill *selection* becomes part of the task). **Decided
+     2026-09-18: mount all 818.** Record the library commit alongside any
+     published score.
+   - **An enriched run and a non-enriched run are different experiments.**
+     The paragraph above already says both are valid; make sure the
+     enrichment state is reported with the result, since a score is not
+     comparable across that boundary.
+
+   Vendoring (submodule vs. directory vs. pinned copy) remains open — see
+   `TODO.md` item 3. Given the library is an independent community project
+   (see the caveat above), a pinned copy is the safer default: an upstream
+   change to a skill silently changes what the benchmark measures.
+
 ### Other skill repos surveyed (not yet adopted for AUT enrichment)
 
 Same "independent, not Anthropic-affiliated" pattern holds for both:

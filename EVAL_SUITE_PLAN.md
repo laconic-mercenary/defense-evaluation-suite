@@ -6,6 +6,32 @@
 > DFIR cases. The framework and stop-condition questions are now settled;
 > no code exists yet, and the next step is a calibration spike.
 
+> **Update 2026-09-18 — the agent-under-test is now fixed: Qwen, running
+> inside Nous Research's Hermes agent.** Qwen is served on Modal.com in
+> development and on our own servers in production. EvalScope ships a Hermes runner (`framework='hermes'`,
+> `agent/external/runners/hermes.py`), so the AUT runs on EvalScope's
+> *external* agent path, not its native `AgentLoop`. That changes four
+> things in this plan:
+>
+> 1. **Tools are Hermes's, not ours.** Hermes's `terminal` toolset replaces
+>    the native `bash`/`submit` loop; chunked reading is `head`/`sed -n`/
+>    `grep` inside that shell. Most of Phase 4's tool design becomes moot.
+> 2. **The stop condition has to be rebuilt.** `max_steps` belongs to the
+>    native loop. On the external path the only native stop is a
+>    wall-clock `timeout` — the one bound we rejected. See "Stop
+>    conditions → On the Hermes path".
+> 3. **The runner needs a small override**: it hard-codes
+>    `context_length: 65536` and installs Hermes from the internet per
+>    sample. See Phase 4 → "AUT: Qwen on Hermes".
+> 4. **Scoring is five buckets**: correctness, report quality,
+>    instruction following, cost, latency — plus run outcome as a
+>    separate column. See Phase 5.
+>
+> Also decided: skills = the whole Anthropic-Cybersecurity-Skills library
+> (no category leak); the EvalScope `eval()` advisory will **not** be
+> submitted; the Japanese docs are out of scope. METI's AI Business
+> Guidelines checklists are mapped in "Governance (METI)".
+
 **The situation.** The 14 DFIR cases and their graded rubrics exist and
 work. Grading them does not scale: a human pastes an agent's answers into
 a conversation and an LLM scores them against `grading_schema.md` by hand.
@@ -32,7 +58,7 @@ contributes nothing to it. Reopened.
 |---|---|---|
 | **DeepEval** | `DAGMetric` rubric decision-trees | No runner, no judge ensemble, no cost/latency capture |
 | **Inspect AI** (UK AISI) | `time_limit`/`cost_limit` as tested primitives, sandboxing, ensemble reducers | No DAG equivalent |
-| **EvalScope** (Alibaba) | Best judge ensemble; native `skills_dir`; a working 460 MB mount precedent (OfficeQA); IFEval + Multi-IF; latency capture by default | **No wall-clock SLA**; custom benchmarks need an in-tree fork |
+| **EvalScope** (Alibaba) | Best judge ensemble; native `skills_dir`; a working 460 MB mount precedent (OfficeQA); IFEval + Multi-IF; latency capture by default; **built-in Hermes runner** | **No wall-clock SLA**; fork *probably* unnecessary (unverified — see "Framework survey") |
 
 **Current lean: EvalScope alone**, conditional on the question below. A
 source-level review retired the risks that previously counted against it
@@ -73,12 +99,14 @@ assertion.
 runner; turn+token budget with wall-clock demoted to a metric; 2-3 model
 judge ensemble; instruction-following as a separate probe set; one session
 per case with per-question grading; no evidence splitting; new code in
-`eval-harness/`. *Open:* the actual `max_steps` and token numbers (to be
-calibrated, not decided up front), target models, pricing source, trials
-per case.
+`eval-harness/`; AUT = Qwen on Hermes (Modal dev, own servers prod); skills = the whole
+library. *Open:* the actual turn and token numbers (to be calibrated, not
+decided up front), how the turn cap is enforced on the Hermes path, pricing
+source, trials per case.
 
-**Next action: the Phase 0 spike** — port `officeqa_adapter.py` against
-the smallest case and calibrate `max_steps`. First real code.
+**Next action: the Phase 0 spike** — Hermes against the smallest case,
+evidence mounted read-only, answers collected by `post_run_hook`, and
+turn/token calibration from the bridge trace. First real code.
 
 ---
 
@@ -185,6 +213,25 @@ Dated; superseded ones are archived at the end rather than deleted.
 - **New code's home**: a new sibling directory (`eval-harness/`, working
   name). Both existing repos' `AGENTS.md` forbid authoring outside their
   own processes.
+- **AUT: Qwen on the Hermes harness, via EvalScope's external runner**
+  (2026-09-18). Qwen is served on **Modal.com in development** and on
+  **our own servers in production**. In dev, evidence leaves our premises
+  on every model call; see "Governance (METI)". Dev and prod numbers are
+  different serving setups and must not be compared as like-for-like.
+- **Skills: the whole Anthropic-Cybersecurity-Skills library (818)**
+  (2026-09-18). Mounting all of it avoids leaking a case's category;
+  choosing the right skill becomes part of the task. Record the library's
+  commit with every score.
+- **Scoring buckets** (2026-09-18): correctness, report quality,
+  instruction following, cost, latency. "Generation" was split into
+  correctness and report quality so a well-written wrong answer cannot
+  outscore a terse right one. Run outcome is reported beside them, not
+  inside them.
+- **EvalScope `eval()` advisory: not submitted** (2026-09-18). The draft
+  stays in the session scratchpad only. We are unaffected — we don't run
+  `docmath`.
+- **Japanese docs out of scope** (2026-09-18). `TEST_OBJECTIVES.jp.md`/
+  `.jp.pdf` are knowingly behind the English edits.
 
 ## Stop conditions
 
@@ -241,6 +288,39 @@ more work than five `ls` — which is what the token ceiling covers.
   files across 8 hosts with 7 questions, which puts a competent run in the
   low hundreds of tool calls. The Phase 0 spike exists to measure this.
 - **Latency remains a reported metric, never a gate** — see Phase 5.
+
+### On the Hermes path (2026-09-18)
+
+Everything above was written for EvalScope's native `AgentLoop`. With
+Hermes as the harness, **`max_steps` does not apply** — it is a native-loop
+setting. Verified in `agent/external/`:
+
+- `ExternalAgentConfig.timeout` (default **600 s**) is the only native
+  stop. It is wall-clock, which we rejected as a gate.
+- The bridge (`agent/external/bridge/server.py`) caps only per-call
+  `max_tokens`. It has **no turn or cumulative-token limit**.
+- It does record every model call (`trace_recorder.py`: per-turn
+  `latency_ms`, per-turn `token_usage`, cumulative `total_usage`), so
+  counting is free; enforcing is not.
+
+The decision stands: the same turn and token limits for every case and
+model, with time never deciding a score. Enforcing it becomes:
+
+- [ ] **Turn cap: Hermes's own iteration limit**, passed through the
+      runner's `extra_args` or its `config.yaml`. Find the exact setting
+      in the pinned Hermes version. The limit Hermes applies must be
+      recorded with the run, as `AgentTrace.max_steps` was.
+- [ ] **Token ceiling: enforced in the bridge.** It sees every call, so
+      it can refuse calls once `total_usage` passes the ceiling. That is
+      a small patch or subclass, and it's ours.
+- [ ] **`timeout` set far above any honest run**, only to catch hangs.
+      A run that hits it is reported as `timed_out` — an infrastructure
+      outcome, not a score.
+- [ ] **Re-map the outcome taxonomy below.** The five native outcomes
+      don't exist on this path. What the external path gives: Hermes's
+      return code, `timed_out`, whatever Hermes prints when it hits its
+      own limit, and whether `QUESTION_ANSWERS.md` exists. Define our
+      outcomes from those in the spike.
 
 ### What happens when a bound is hit
 
@@ -323,7 +403,9 @@ Confident AI hosted dependency already declined).
   adds throughput sweeps and trace-replay datasets for agent-shaped load.
 - **IFEval, IFBench and Multi-IF** all present.
 - **External Agent Bridge** delegates a sample to Claude Code / Codex /
-  Gemini CLI. Inspect can do this too — not a differentiator.
+  OpenCode / Gemini CLI / **Hermes**. Inspect can host external agents
+  too, but a ready-made Hermes runner is a real saving now that Hermes is
+  our harness (2026-09-18).
 
 **Costs:** no wall-clock SLA (`max_steps` + `command_timeout` only) —
 no longer a problem, see "Stop conditions"; no abort-on-spend ceiling
@@ -426,8 +508,48 @@ resolution. A hardening pass has happened — `docmath` was missed.
 - [ ] Treat `trust_remote_code=True` as a constraint on model selection —
       **locally-loaded weights are code, not data**. Bears on Phase 0's
       target-model item; API-served models don't carry this risk.
-- [ ] Report finding #1 upstream via `.github/SECURITY.md` — one-line fix
-      (`ast.literal_eval`), worth doing regardless of adoption.
+- [x] ~~Report finding #1 upstream~~ — **decided 2026-09-18: not
+      submitting.** We don't run `docmath`; the skip rule above covers us.
+- [ ] **Hermes runs with `--yolo`** (every shell command auto-approved,
+      hard-coded in the runner). Acceptable only because the container
+      holds one case's evidence and nothing else. This is why the
+      answer-key rules above are non-negotiable.
+- [ ] **No auto-install in the sandbox.** The runner's default pipes
+      `https://hermes-agent.nousresearch.com/install.sh` into `bash` inside
+      every sample's container. Build a pinned image from
+      `agent/external/dockerfiles/Dockerfile.hermes` and set
+      `auto_install=False`.
+- [ ] **Container network: the bridge only.** Hermes must reach the bridge
+      (`host.docker.internal`, so the bridge binds `0.0.0.0` — finding #8);
+      nothing else. Qwen is reached by the bridge on the host, not by the
+      container.
+
+## Governance (METI)
+
+Checked 2026-09-18 against
+[METI AI Business Guidelines, Annex 7](https://www.meti.go.jp/shingikai/mono_info_service/ai_shakai_jisso/pdf/20260331_5.pdf)
+(AI事業者ガイドライン 別添7, dated 令和8年3月31日 = 2026-03-31). It holds two
+checklists: **7A**, a summary of Part 2 C (common principles for all
+businesses), and **7B**, the Hiroshima AI Process guiding principles
+(Part 2 D). These are checklists for businesses to apply as appropriate
+— evidence we can produce, not a pass/fail certification.
+
+| METI item | What this suite provides | Gap |
+|---|---|---|
+| 7A Safety (安全性) | Correctness and calibration scores before anyone relies on the agent | Set a minimum score for deployment |
+| 7A Bias (公平性) | Benign cases (e.g. `benign-breakglass-account`, `external-recon-no-breach`) measure false accusation | Report false-accusation rate as its own number (ties to Phase 1's equal-penalty rule) |
+| 7A Privacy (プライバシー) | Evidence mounted per case, read-only | **Dev runs on Modal: evidence text leaves our premises on every call.** Confirm the dev cases hold no real personal data. Production on our own servers closes this |
+| 7A Security (セキュリティ) | Sandbox, answer-key isolation, egress limited to the bridge | Pinned Hermes image |
+| 7A Transparency (透明性) | Per-category scores and known limits in the report | Decide the report's audience |
+| 7A Accountability (アカウンタビリティ) | Every model call, tool call, token and timing logged; versions pinned | Decide how long run records are kept |
+| 7A Governance policy | Not covered — organisational | Outside this project |
+| 7B ① Risk evaluation before deployment | This suite is that evaluation | — |
+| 7B ② Monitoring after deployment | Re-run on every model or harness change | Schedule it |
+| 7B ④ Information sharing | We chose not to submit the EvalScope advisory (2026-09-18) | Record the reason if asked |
+| 7B ⑦ Marking AI-generated content | Answer files are agent-written | Label reports as AI-generated if they leave the team |
+
+The other 7B items (research priorities, global challenges, standards,
+data input) concern how organisations behave, not this suite.
 
 ## Phase 0 — Decisions and scaffolding (no code yet)
 
@@ -435,13 +557,17 @@ resolution. A hardening pass has happened — `docmath` was missed.
       token ceiling, one budget for all cases and models, wall-clock
       demoted to a reported metric. See "Stop conditions". This also
       settled the framework (EvalScope alone).
-- [ ] **The spike, now the first real work** — port `officeqa_adapter.py`
-      against `rdp-remote-file-write` (0.5 MB, smallest): mount `data/`
-      read-only, give the agent `bash`, answer one `EXAM.md` question.
-      Its job is **calibrating `max_steps`** — the default of 10 is an
-      order of magnitude too low — plus checking whether `AgentLoop`
-      degrades at depth and confirming the truncation outcomes surface as
-      documented. Produces a transcript usable as a Phase 1 sample.
+- [ ] **The spike, now the first real work** (revised 2026-09-18 for
+      Hermes) — against `rdp-remote-file-write` (0.5 MB, smallest): pinned
+      Hermes image, case mounted read-only via `environment_override`,
+      full `EXAM.md`, answers collected by `post_run_hook`. It must show:
+      (1) the adapter registers from outside the EvalScope tree (settles
+      the fork question); (2) per-turn tokens and latency in the trace;
+      (3) Hermes's turn limit and our bridge token ceiling both stop a run
+      cleanly; (4) the 818-skill prompt launches, or `skill_prompt_nudge`
+      must go off; (5) whether Qwen writes `QUESTION_ANSWERS.md` as it goes.
+      Its calibration job is the turn and token numbers. Produces a
+      transcript usable as a Phase 1 sample.
       Escalate to `ssh-shared-key-overlap` (1.7 MB) if the first is too
       small to stress the loop, then to a large case to find the real
       ceiling — the budget has to be sized for
@@ -461,9 +587,11 @@ resolution. A hardening pass has happened — `docmath` was missed.
 - [ ] Confirm license terms at adoption time — EvalScope Apache-2.0,
       Inspect AI MIT, DeepEval open-source; all checked by doc only
       2026-09-09.
-- [ ] Decide target models in scope (determines which vendor APIs need
-      auth). **Self-hosted weights execute code on load** — see the
-      security rules.
+- [x] ~~Decide target models~~ — **decided 2026-09-18: Qwen on Hermes,
+      served on Modal in dev and our own servers in prod.** The eval host
+      never loads weights, but the **production servers do** — the
+      `trust_remote_code` rule applies to whoever operates them. Still
+      open: which Qwen variant and version, pinned and recorded per run.
 - [ ] Read **DFIR-Metric** (arXiv 2505.19973), cited in
       `TEST_OBJECTIVES.md` as the closest published prior art, before
       finalising rubric structure — check what grading methodology it
@@ -571,6 +699,65 @@ Two durable points, framework-neutral: a grading layer doesn't care how an
 answer was produced (which is what makes mixing a runner and a grader from
 different frameworks viable); and **one run yields one graded item per
 `EXAM.md` question**, not one monolithic result per case.
+
+### AUT: Qwen on Hermes (2026-09-18)
+
+Read from `agent/external/` at `203cdc93`. **This supersedes the parts of
+the sections below that assume EvalScope's native loop and our own tools**
+— the bootstrap message, the tool surface, the tool-output cap and the
+`submit` handling are now Hermes's. The adapter, the per-case mount, the
+one-sample-per-case shape and the rubric-as-target all still hold.
+
+```
+host (answer keys, never mounted)
+ ├─ ForensicsAdapter ─ one sample per case
+ ├─ bridge (OpenAI-compatible) ──▶ Qwen (Modal dev / own servers prod)
+ │     └─ records every call: messages, tokens, latency
+ └─ docker, one container per case
+       ├─ /case  ← that case only, read-only
+       └─ hermes chat --yolo --toolsets terminal -q "<bootstrap>"
+ post_run_hook reads QUESTION_ANSWERS.md out → judges on the host
+```
+
+What the source gives us:
+
+- `run_external_agent(environment_override=...)` — our adapter builds the
+  per-case container and hands it in; SWE-bench Pro uses this for
+  per-instance images.
+- `instruction_override` — the case-agnostic bootstrap message.
+- `post_run_hook(env, result, sample)` runs **inside** the container
+  before it closes; its return value replaces Hermes's stdout as the
+  graded output. That is how `QUESTION_ANSWERS.md` is collected, and it
+  works on truncated runs too.
+- The trace has the same `AgentTrace` shape as native runs, so Phase 5's
+  token and latency reporting is unchanged.
+
+What we must override or configure:
+
+- [ ] **Context length.** The runner writes `context_length: 65536` into
+      Hermes's `config.yaml`, hard-coded. Hermes will compact or truncate
+      at 64K whatever Qwen supports. Subclass the runner
+      (`@register_runner`, a decorator — no fork) and set it to the served
+      model's real window, identical for every model compared.
+- [ ] **Pinned image, `auto_install=False`** — see security rules.
+- [ ] **`toolsets`** defaults to `terminal`. Decide whether Hermes's file
+      or web toolsets are allowed. Web must stay off: it lets the agent
+      look answers up rather than find them.
+- [ ] **Skills prompt size.** `skills_dir` works on this path too
+      (`resolve_agent_skills` + `install_task_skills`), and
+      `skill_prompt_nudge` (default on) prepends one line per skill to the
+      instruction. With all 818 that is an estimated 100-200 KB, and the
+      runner passes the instruction as **one** `-q` argument. Linux caps a
+      single argument at 128 KB (`MAX_ARG_STRLEN`), so this may fail to
+      launch; even if not, it is roughly 30-50K tokens on every call.
+      Likely fix: `skill_prompt_nudge=False`, and have the bootstrap point
+      at the mounted skills directory so the agent searches it. Measure in
+      the spike (the library isn't checked out on this host).
+- [ ] **Where Qwen runs is part of the result.** On Modal, latency
+      includes network and **cold starts** (a scaled-to-zero container
+      spinning up and loading weights), and cost is GPU-seconds, not a
+      token price. Keep a warm container during runs, or record and
+      exclude cold starts; report dev and production separately.
 
 ### Why the no-code path doesn't work for us
 
@@ -717,12 +904,12 @@ Two traps worth recording even though we're not taking this path:
       adapter must raise instead of falling back. This is the single
       easiest way for the answer-key exposure scenario to happen by
       accident.
-- [ ] `skills_dir` delivers the AUT skill enrichment
-      (`TEST_OBJECTIVES.md`'s adopted decision). **Decide which skills get
-      mounted — it's a test-design question, not config.** A
-      category-matched subset leaks which of the nine categories a case
-      belongs to; all 818 avoids the leak but makes skill *selection* part
-      of the task. Record which was used with any published score.
+- [x] ~~Decide which skills get mounted~~ — **decided 2026-09-18: all
+      818.** A category-matched subset would leak which of the nine
+      categories a case belongs to; the whole library makes skill
+      *selection* part of the task. Record the library commit with every
+      published score. See "AUT: Qwen on Hermes" for the prompt-size
+      problem this creates.
 - [ ] Decompress/convert binary evidence before it's readable —
       per `forensic-agent-answers/AGENTS.md`'s "Known pitfalls," `.evtx` is
       UTF-16 inside a compressed structure and needs `evtx_dump -o jsonl`
@@ -779,9 +966,20 @@ Two traps worth recording even though we're not taking this path:
 
 ## Phase 5 — Reporting
 
-- [ ] One report per target model: domain score, generation score
-      (fluency + hallucination), instruction-following (IFEval/Multi-IF),
-      cost, latency.
+- [ ] One report per target model, **five buckets** (2026-09-18):
+
+      | Bucket | Measured by | EvalScope built-in? |
+      |---|---|---|
+      | Correctness | 73 rubric items, judge ensemble; `exact_match`/`numeric_match` for hashes, PIDs, timestamps | Judge framework yes; rubric ours |
+      | Report quality | Evidence cited, uncertainty stated ("not determinable" over guessing), register/tone | Judge yes; rubric ours |
+      | Instruction following | Answer file present and in format, every question answered, stayed in its case, evidence untouched — checked from the file and the trace; IFEval/Multi-IF as a separate model-level probe (Phase 3) | Probes yes; case checks ours |
+      | Cost | Tokens in/out per turn and per case (`total_usage`) | Tokens yes; money ours |
+      | Latency | Wall time per case, model latency per turn (bridge `latency_ms`); tool time ≈ wall − model | Yes |
+
+      Skip `bert_score`/`sem_score`: similarity is not correctness, and a
+      wrong PID reads as nearly identical to the right one. Calibration is
+      scored inside report quality but worth surfacing on its own — a
+      confident wrong answer does more harm than an honest gap.
 - [ ] **Run outcome is its own column, not folded into a score.** Report
       the distribution across the five-way taxonomy per model — how many
       cases ended in a clean submit, `max_steps_exceeded`,
@@ -825,15 +1023,20 @@ Nothing here blocks starting. The Phase 0 spike answers 1-3 directly.
    the spike measures it. Default of 10 is an order of magnitude too low.
 2. Whether `AgentLoop` degrades at the step count a real corpus search
    needs (the mount is proven; the *depth* is not).
-3. Whether EvalScope caps tool output by default — if not, the cap is a
+3. Whether Hermes's `terminal` tool caps output (it, not EvalScope, now
+   runs the shell) — if not, the cap is a
    hard prerequisite for any large case.
 4. **Whether models write `QUESTION_ANSWERS.md` incrementally.** Partial
    credit on truncation depends on it and nothing enforces it.
-5. Which skills get mounted via `skills_dir`, given the category-leak
-   problem.
+5. ~~Which skills get mounted~~ — all 818 (2026-09-18). New question in
+   its place: whether the 818-line skills prompt fits a single `-q`
+   argument.
 6. Whether `register_benchmark` works from an external module (no fork).
    Likely yes — it's a plain decorator — but unconfirmed by running it.
-7. Target models, pricing source, trials per case.
+7. Pricing source (Modal GPU-seconds in dev; our own hardware cost in
+   prod), trials per case, the exact Qwen variant.
+8. Hermes's turn-limit setting, and what Hermes prints or returns when
+   it hits it.
 
 ## Deferred, not dropped
 
