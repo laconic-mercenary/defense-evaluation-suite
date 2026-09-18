@@ -21,8 +21,10 @@
      a third-party community project, so a pinned copy is the safer
      default. Open question raised in `EVAL_SUITE_PLAN.md` Phase 4:
      mounting a category-matched subset of the 818 skills would leak which
-     of the nine categories a case belongs to. **Decided 2026-09-18: all
-     818 are mounted, for every case.** The AUT is now Qwen on the Hermes
+     of the nine categories a case belongs to. **Decided 2026-09-18: the same
+     10 skills for every case** — the union of `TEST_CASE_MATRIX.md`'s
+     "Skills Enabled" column. Per-case lists would hint at answers; all
+     818 overflows the prompt. The AUT is now Qwen on the Hermes
      harness via EvalScope's external runner, which also accepts
      `skills_dir`. Vendoring is still open.
 4. Develop tests that also include the browser history

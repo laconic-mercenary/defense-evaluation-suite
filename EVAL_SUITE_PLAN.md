@@ -27,8 +27,8 @@
 >    instruction following, cost, latency — plus run outcome as a
 >    separate column. See Phase 5.
 >
-> Also decided: skills = the whole Anthropic-Cybersecurity-Skills library
-> (no category leak); the EvalScope `eval()` advisory will **not** be
+> Also decided: skills = the same 10 skills for every case (the union of
+> the per-case lists; no per-case hint); the EvalScope `eval()` advisory will **not** be
 > submitted; the Japanese docs are out of scope. METI's AI Business
 > Guidelines checklists are mapped in "Governance (METI)".
 
@@ -218,10 +218,34 @@ Dated; superseded ones are archived at the end rather than deleted.
   **our own servers in production**. In dev, evidence leaves our premises
   on every model call; see "Governance (METI)". Dev and prod numbers are
   different serving setups and must not be compared as like-for-like.
-- **Skills: the whole Anthropic-Cybersecurity-Skills library (818)**
-  (2026-09-18). Mounting all of it avoids leaking a case's category;
-  choosing the right skill becomes part of the task. Record the library's
-  commit with every score.
+- **Skills: one fixed set of 10, identical for every case** (2026-09-18,
+  replacing "all 818" the same day). The set is the union of
+  `TEST_CASE_MATRIX.md`'s per-case "Skills Enabled" column. Rejected:
+  - *All 818* — the skills list is prepended to the prompt, likely
+    over Linux's 128 KB single-argument limit, and ~30-50K tokens per call.
+  - *Per-case lists (2-4 each)* — authored on the answer side by people
+    who knew the answers, so they hint at findings. Worst on the benign
+    cases: `benign-breakglass-account` would get
+    `detecting-service-account-abuse`, undermining the false-accusation
+    measurement. Kept only as an optional, labelled **"assisted"** run;
+    the gap between it and the headline run shows what a tailored
+    toolkit is worth.
+
+  Pin the library commit and record it, and the 10 names, with every
+  score. If a new case adds a skill to the matrix, the set changes for
+  every case — version it and don't compare scores across versions.
+
+  The 10, as of 2026-09-18:
+  `analyzing-cyber-kill-chain` ·
+  `analyzing-linux-audit-logs-for-intrusion` ·
+  `building-super-timelines-with-plaso` ·
+  `detecting-lateral-movement-in-network` ·
+  `detecting-service-account-abuse` ·
+  `extracting-windows-event-logs-artifacts` ·
+  `hunting-for-data-exfiltration-indicators` ·
+  `performing-active-directory-compromise-investigation` ·
+  `performing-log-analysis-for-forensic-investigation` ·
+  `performing-network-traffic-analysis-with-zeek`.
 - **Scoring buckets** (2026-09-18): correctness, report quality,
   instruction following, cost, latency. "Generation" was split into
   correctness and report quality so a well-written wrong answer cannot
@@ -564,8 +588,7 @@ data input) concern how organisations behave, not this suite.
       (1) the adapter registers from outside the EvalScope tree (settles
       the fork question); (2) per-turn tokens and latency in the trace;
       (3) Hermes's turn limit and our bridge token ceiling both stop a run
-      cleanly; (4) the 818-skill prompt launches, or `skill_prompt_nudge`
-      must go off; (5) whether Qwen writes `QUESTION_ANSWERS.md` as it goes.
+      cleanly; (4) the 10 skills install and appear in Hermes's prompt; (5) whether Qwen writes `QUESTION_ANSWERS.md` as it goes.
       Its calibration job is the turn and token numbers. Produces a
       transcript usable as a Phase 1 sample.
       Escalate to `ssh-shared-key-overlap` (1.7 MB) if the first is too
@@ -743,16 +766,15 @@ What we must override or configure:
 - [ ] **`toolsets`** defaults to `terminal`. Decide whether Hermes's file
       or web toolsets are allowed. Web must stay off: it lets the agent
       look answers up rather than find them.
-- [ ] **Skills prompt size.** `skills_dir` works on this path too
-      (`resolve_agent_skills` + `install_task_skills`), and
-      `skill_prompt_nudge` (default on) prepends one line per skill to the
-      instruction. With all 818 that is an estimated 100-200 KB, and the
-      runner passes the instruction as **one** `-q` argument. Linux caps a
-      single argument at 128 KB (`MAX_ARG_STRLEN`), so this may fail to
-      launch; even if not, it is roughly 30-50K tokens on every call.
-      Likely fix: `skill_prompt_nudge=False`, and have the bootstrap point
-      at the mounted skills directory so the agent searches it. Measure in
-      the spike (the library isn't checked out on this host).
+- [ ] **Skills delivery.** `skills_dir` works on this path too
+      (`resolve_agent_skills` + `install_task_skills`): point it at a
+      pinned folder holding just the 10 skills. `skill_prompt_nudge`
+      (default on) prepends one line per skill to the instruction — fine
+      at 10. (At 818 it would have been an estimated 100-200 KB in one
+      `-q` argument, past Linux's 128 KB `MAX_ARG_STRLEN`; one reason
+      that option was dropped.) For the optional assisted run,
+      `sample.metadata['agent_skills']` takes precedence over `skills_dir`,
+      so the adapter can attach a per-case set without a separate task.
 - [ ] **Where Qwen runs is part of the result.** On Modal, latency
       includes network and **cold starts** (a scaled-to-zero container
       spinning up and loading weights), and cost is GPU-seconds, not a
@@ -904,12 +926,9 @@ Two traps worth recording even though we're not taking this path:
       adapter must raise instead of falling back. This is the single
       easiest way for the answer-key exposure scenario to happen by
       accident.
-- [x] ~~Decide which skills get mounted~~ — **decided 2026-09-18: all
-      818.** A category-matched subset would leak which of the nine
-      categories a case belongs to; the whole library makes skill
-      *selection* part of the task. Record the library commit with every
-      published score. See "AUT: Qwen on Hermes" for the prompt-size
-      problem this creates.
+- [x] ~~Decide which skills get mounted~~ — **decided 2026-09-18: the
+      same 10 for every case** (union of the matrix column). See
+      "Decisions" for why not all 818 and not per-case lists.
 - [ ] Decompress/convert binary evidence before it's readable —
       per `forensic-agent-answers/AGENTS.md`'s "Known pitfalls," `.evtx` is
       UTF-16 inside a compressed structure and needs `evtx_dump -o jsonl`
@@ -1028,9 +1047,8 @@ Nothing here blocks starting. The Phase 0 spike answers 1-3 directly.
    hard prerequisite for any large case.
 4. **Whether models write `QUESTION_ANSWERS.md` incrementally.** Partial
    credit on truncation depends on it and nothing enforces it.
-5. ~~Which skills get mounted~~ — all 818 (2026-09-18). New question in
-   its place: whether the 818-line skills prompt fits a single `-q`
-   argument.
+5. ~~Which skills get mounted~~ — the same 10 for every case
+   (2026-09-18).
 6. Whether `register_benchmark` works from an external module (no fork).
    Likely yes — it's a plain decorator — but unconfirmed by running it.
 7. Pricing source (Modal GPU-seconds in dev; our own hardware cost in

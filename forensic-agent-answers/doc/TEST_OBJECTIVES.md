@@ -48,8 +48,12 @@ Two distinct ways it's used, and both are now decided:
      supposed to have, and one that partly answers the question the case
      is asking. Mounting all 818 avoids the leak but changes what's
      measured (skill *selection* becomes part of the task). **Decided
-     2026-09-18: mount all 818.** Record the library commit alongside any
-     published score.
+     2026-09-18: the same 10 skills for every case**, the union of
+     `TEST_CASE_MATRIX.md`'s "Skills Enabled" column. Each case's own
+     list is written with knowledge of its answer, so mounting it per case
+     would hint at the finding; the shared union reveals nothing about any
+     one case. All 818 was rejected on prompt size. Record the library
+     commit and the 10 names alongside any published score.
    - **An enriched run and a non-enriched run are different experiments.**
      The paragraph above already says both are valid; make sure the
      enrichment state is reported with the result, since a score is not
