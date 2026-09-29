@@ -1,0 +1,31 @@
+# Templated by entrypoint.sh via envsubst (squid.conf itself has no env-var
+# syntax) into /etc/squid/squid.conf, substituting only $PROXY_ALLOWED_HOST
+# -- see run-case.sh for where that value comes from.
+#
+# Loopback-only: nothing outside this container's network namespace could
+# reach it anyway, but binding wide would be one unnecessary door left open
+# for no reason.
+http_port 127.0.0.1:3128
+
+# The entire point of this proxy: one allowed destination, everything else
+# refused. dstdomain (hostname-based) rather than an IP allowlist -- IPs
+# behind a domain like this can rotate; the hostname is the actual contract.
+acl allowed_dst dstdomain ${PROXY_ALLOWED_HOST}
+http_access allow allowed_dst
+http_access deny all
+
+# Not a caching proxy -- these are live model-inference calls, nothing here
+# should ever be served from a cache. Also sidesteps needing a `squid -z`
+# cache-dir initialization step.
+cache deny all
+
+# Runs as root only long enough to bind the port and read this config, then
+# drops itself to the `proxy` user (created by the Debian package) for the
+# rest of its life -- this is squid's own standard behavior, not something
+# entrypoint.sh has to orchestrate. The iptables rule in entrypoint.sh that
+# exempts this proxy's own outbound traffic keys off that same `proxy` UID,
+# so this line and that rule must stay in sync if either ever changes.
+cache_effective_user proxy
+cache_effective_group proxy
+
+access_log stdio:/var/log/squid/access.log

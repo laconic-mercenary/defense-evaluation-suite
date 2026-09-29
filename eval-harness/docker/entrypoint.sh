@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Copies three read-only mounts (bound `:ro` at `docker run` time) into
-# plain writable, container-local directories before handing off to Hermes:
-#   /case-src          -> /case                case evidence (see run-case.sh)
-#   /hermes-config-src -> $HERMES_HOME          your own pre-configured ~/.hermes
-#   /skills-src         -> $HERMES_HOME/skills   whatever skills you want indexed
+# Phase 1 (root) of this container's startup. Copies three read-only mounts
+# (bound `:ro` at `docker run` time) into plain writable, container-local
+# directories, stands up an egress-lockdown proxy and firewall, then drops
+# root and hands off to entrypoint-agent.sh (phase 2, unprivileged) to
+# actually run the agent. See entrypoint-agent.sh for why the handoff is a
+# separate file rather than a spot partway through this one.
+#
+#   /case-src           -> /case                case evidence (see run-case.sh)
+#   /hermes-config-src   -> $HERMES_HOME          your own pre-configured ~/.hermes
+#   /skills-src          -> $HERMES_HOME/skills   whatever skills you want indexed
 # Same reason for all three: the case files tell the agent to write
 # QUESTION_ANSWERS.md "in this directory," and Hermes needs to write its
 # own session/runtime state (including installing/indexing skills) --
@@ -13,7 +18,7 @@
 #
 # A fourth mount, /output, goes the other way -- read-write, so this run's
 # QUESTION_ANSWERS.md and trace actually escape the container instead of
-# being deleted with it (`docker run --rm`). See the bottom of this file.
+# being deleted with it (`docker run --rm`). See entrypoint-agent.sh.
 #
 # This deliberately does not know anything about Hermes's config schema
 # (config.yaml, provider: custom, etc.) -- point HERMES_CONFIG_DIR (see
@@ -30,17 +35,34 @@
 # explicitly.
 set -euo pipefail
 
+# Every `cp -a` below is followed by an explicit `chown -R hermes:hermes` on
+# its destination -- not belt-and-suspenders, a real fix for a real bug hit
+# while building this. `cp -a src/. dest/` replicates SOURCE ownership/mode
+# onto whatever it creates, not just the bytes -- confirmed directly (a
+# 700 source directory copied over an existing 777 destination left the
+# destination at 700 too). This script now runs this copy as root (needed
+# below for the iptables setup), and these three sources are `:ro` bind
+# mounts of host paths that show up owned by root inside this container
+# (a Docker Desktop bind-mount artifact) -- so root copying them faithfully
+# replicates that root ownership onto $HERMES_HOME and /case, locking the
+# hermes user out of its own runtime state entirely. This was silently
+# harmless before: when this script ran AS hermes (pre-egress-lockdown),
+# a non-root `cp -a` can't actually chown to a different owner, so it
+# quietly kept the copies hermes-owned by fallback, not by a decision made
+# anywhere. Root can, so now it must be corrected explicitly.
 if [ ! -d /case-src ]; then
   echo "entrypoint: /case-src not mounted -- run-case.sh should have passed -v <case dir>:/case-src:ro" >&2
   exit 1
 fi
 cp -a /case-src/. /case/
+chown -R hermes:hermes /case
 
 if [ ! -d /hermes-config-src ]; then
   echo "entrypoint: /hermes-config-src not mounted -- set HERMES_CONFIG_DIR (see .env.example)" >&2
   exit 1
 fi
 cp -a /hermes-config-src/. "${HERMES_HOME}/"
+chown -R hermes:hermes "${HERMES_HOME}"
 # Accepted risk, not an oversight: this puts the real model-endpoint
 # credential (e.g. MODAL_API_KEY) inside the same filesystem the --yolo
 # agent has full bash access to. Hermes's own secret redaction (on by
@@ -54,6 +76,13 @@ cp -a /hermes-config-src/. "${HERMES_HOME}/"
 # human-supervised spike; revisit (a bridge process holding the real
 # credential outside this container entirely) before this becomes the
 # automated, less-supervised harness run against an untrusted AUT.
+#
+# The egress lockdown below (proxy + firewall) is a real, separate
+# mitigation for the worst-case consequence of that same gap: even if a
+# credential does leak into the model's context (e.g. a compromised
+# skill's symlink trick defeating redaction by basename -- found and
+# verified this session, not hypothetical), there is nowhere for it to be
+# exfiltrated TO except the one allowed destination.
 
 # Whatever's in SKILLS_DIR (see run-case.sh) gets copied in as-is and
 # indexed by Hermes -- no filtering here. Hermes builds a compact per-skill
@@ -68,57 +97,71 @@ if [ ! -d /skills-src ]; then
 fi
 mkdir -p "${HERMES_HOME}/skills"
 cp -a /skills-src/. "${HERMES_HOME}/skills/"
+chown -R hermes:hermes "${HERMES_HOME}/skills"
 
-# Always runs, no on/off toggle. `hermes dashboard` (config/API-key/session
-# management -- it does NOT stream the live chat session below) defaults to
-# --host 127.0.0.1, which a container's published port cannot reach at all
-# (loopback is per network-namespace). --host 0.0.0.0 is required for
-# `docker run -p` to work -- but Hermes enforces, on purpose, that "a
-# non-loopback bind always requires an auth provider," and refuses to start
-# otherwise for any non-interactive caller (Docker has no TTY). Set
-# HERMES_DASHBOARD_BASIC_AUTH_USERNAME/_PASSWORD_HASH/_SECRET (see
-# run-case.sh / .env.example) or this will exit with an error -- that is
-# Hermes's fail-closed behavior working as intended, not a bug here.
-read -ra dashboard_args <<< "${HERMES_DASHBOARD_ARGS:-}"
-hermes dashboard \
-  --host 0.0.0.0 \
-  --port "${HERMES_DASHBOARD_PORT:-9119}" \
-  --no-open \
-  "${dashboard_args[@]}" &
+# --- Egress lockdown ----------------------------------------------------------
+# Everything below runs as root (this container no longer sets USER in the
+# Dockerfile for exactly this reason) and is gone -- capability and all --
+# before the --yolo agent's own code starts running. The design, verified
+# live before being written here (not assumed):
+#
+#   1. Squid (bound to 127.0.0.1:3128 only) is started as root, and
+#      immediately self-drops to the `proxy` user per squid.conf's
+#      `cache_effective_user` -- squid's own standard behavior, not
+#      something this script orchestrates.
+#   2. iptables OUTPUT policy is set to DROP by default, with explicit
+#      ACCEPT rules for: loopback, established/related connections, and
+#      any outbound packet owned by the `proxy` UID (squid's own traffic,
+#      via the `owner` match module) -- so squid itself can still reach
+#      its one allowed destination, but nothing else on this container can
+#      reach anywhere at all except through it.
+#   3. `capsh --drop=cap_net_admin` removes NET_ADMIN from this process's
+#      capability BOUNDING set -- not just the effective/permitted sets a
+#      plain UID switch would drop, but the set that would otherwise let a
+#      descendant process regain it by any means. Confirmed directly: a
+#      capsh-dropped process attempting `iptables -F` while still
+#      uid=0(root) fails with a kernel-level "Permission denied," not a
+#      convention that trusts the agent to behave.
+#   4. gosu switches to the unprivileged `hermes` user in the same step,
+#      then execs entrypoint-agent.sh, which is what actually runs the
+#      agent's commands from here on.
+#
+# PROXY_ALLOWED_HOST is the one destination this whole container can ever
+# reach -- your model endpoint's hostname (Modal in dev, on-prem in prod;
+# see run-case.sh). Hostname-based (Squid's dstdomain), not IP-based: the
+# IP behind that hostname can rotate, the hostname is the actual contract.
+: "${PROXY_ALLOWED_HOST:?set PROXY_ALLOWED_HOST -- see run-case.sh / .env.example}"
+envsubst '${PROXY_ALLOWED_HOST}' < /etc/squid/squid.conf.template > /etc/squid/squid.conf
+mkdir -p /var/log/squid
+squid -f /etc/squid/squid.conf
 
-# Not `exec "$@"` -- deliberately. exec would replace this process with
-# hermes chat, so nothing below (copying the answer out, exporting the
-# trace) would ever run: exec never returns. Capturing the exit code
-# instead of letting `set -e` abort on a non-zero one, since a failed or
-# truncated run still needs its partial QUESTION_ANSWERS.md/trace copied
-# out -- "the run failed" and "we lost the output" are different problems.
-set +e
-"$@"
-HERMES_EXIT_CODE=$?
-set -e
-
-# /output is a plain read-write bind mount to a host directory run-case.sh
-# creates per test run (see its RUN_DIR/testrun_* logic) -- world-writable
-# on the host side specifically so this works regardless of which UID this
-# container runs as or whether docker itself runs under sudo, rather than
-# trying to match UIDs across the container/host boundary.
-if [ -d /output ]; then
-  if [ -f /case/QUESTION_ANSWERS.md ]; then
-    cp /case/QUESTION_ANSWERS.md /output/QUESTION_ANSWERS.md
-  else
-    echo "entrypoint: /case/QUESTION_ANSWERS.md missing at exit (exit code $HERMES_EXIT_CODE) -- nothing to copy out" >&2
+# Squid forks and returns almost immediately, but "listening" and "returned"
+# aren't the same moment -- poll instead of a fixed sleep, since how long
+# that gap actually is isn't something to guess at and hard-code.
+for _ in $(seq 1 50); do
+  if (exec 3<>/dev/tcp/127.0.0.1/3128) 2>/dev/null; then
+    exec 3>&-
+    break
   fi
-  # --format trace (a "Claude Code JSONL trace export," confirmed in
-  # hermes_cli/sessions_cmd.py) with no --session-id resolves to "the last
-  # thing I did" -- the most recently active session -- which in this
-  # single-use, single-session container is always the run above. Failure
-  # here shouldn't mask a real hermes chat failure, so it's logged, not
-  # fatal.
-  if ! hermes sessions export --format trace /output/trace.jsonl; then
-    echo "entrypoint: hermes sessions export failed -- no trace captured for this run" >&2
-  fi
-else
-  echo "entrypoint: /output not mounted -- QUESTION_ANSWERS.md and the trace stay trapped in this container. Set up RUN_DIR in run-case.sh." >&2
-fi
+  sleep 0.1
+done
 
-exit "$HERMES_EXIT_CODE"
+iptables -P OUTPUT DROP
+iptables -A OUTPUT -o lo -j ACCEPT
+iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# Keyed off the same `proxy` UID squid.conf.template's cache_effective_user
+# sets -- the two have to stay in sync if either ever changes.
+iptables -A OUTPUT -m owner --uid-owner proxy -j ACCEPT
+
+export HTTPS_PROXY="http://127.0.0.1:3128"
+export HTTP_PROXY="http://127.0.0.1:3128"
+export NO_PROXY="localhost,127.0.0.1"
+
+# The quoting here is deliberate and tested, not incidental: `"$@"` inside
+# the single-quoted -c string is passed through LITERALLY (capsh's shell
+# resolves it against ITS OWN positional params, populated from whatever
+# follows `-c '...' --`), so the original hermes-chat arguments survive
+# capsh -> gosu -> entrypoint-agent.sh byte-for-byte, spaces and embedded
+# quotes included -- verified directly with an adversarial test argument
+# before this was written, not assumed safe.
+exec capsh --drop=cap_net_admin -- -c "exec gosu hermes /usr/local/bin/entrypoint-agent.sh \"\$@\"" -- "$@"

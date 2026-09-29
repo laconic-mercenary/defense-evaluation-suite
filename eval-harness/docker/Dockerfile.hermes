@@ -22,9 +22,15 @@
 
 FROM python:3.14-slim
 
+# iptables/libcap2-bin/gosu/squid/gettext-base: the egress lockdown
+# entrypoint.sh sets up at container start (root sets firewall rules +
+# starts a locked-down local proxy, then irreversibly drops the capability
+# that could undo them before the --yolo agent runs) -- see entrypoint.sh
+# for the mechanism, verified live before being built here.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
-        curl ca-certificates git bash ripgrep xz-utils && \
+        curl ca-certificates git bash ripgrep xz-utils \
+        iptables libcap2-bin gosu squid gettext-base && \
     rm -rf /var/lib/apt/lists/*
 
 # Pinned, not "latest" -- otherwise a rebuild months from now silently
@@ -75,7 +81,9 @@ RUN /usr/local/bin/hermes --version
 # container is single-use and discarded after one run, so the copy carries
 # no cross-run contamination risk.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY entrypoint-agent.sh /usr/local/bin/entrypoint-agent.sh
+COPY proxy/squid.conf.template /etc/squid/squid.conf.template
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/entrypoint-agent.sh
 
 # Everything the non-root user needs to read or write from here on: its own
 # home (the venv, the editable-install source tree, and Hermes's own
@@ -90,11 +98,19 @@ ENV HERMES_YOLO_MODE=1
 ENV DO_NOT_TRACK=1
 ENV PATH="/usr/local/bin:${PATH}"
 
-USER hermes
-# Re-run the sanity check as the user that will actually invoke this, not
-# just as root during the earlier install step -- catches a permissions
-# mistake in the chown above at build time instead of at first `docker run`.
-RUN hermes --version
+# No USER here, deliberately -- unlike before the egress lockdown was
+# added. entrypoint.sh (phase 1) now has to start as root: it sets the
+# iptables rules and starts the locked-down proxy, then irreversibly drops
+# root itself (capsh --drop=cap_net_admin + gosu hermes) before handing off
+# to entrypoint-agent.sh, which is what actually runs the --yolo agent. See
+# entrypoint.sh for the full mechanism.
+#
+# Re-run the version sanity check as the user that will actually run the
+# agent, not just as root during the earlier install step -- catches a
+# permissions mistake in the chown above at build time instead of at first
+# `docker run`. gosu, not USER, since this image no longer switches user at
+# the image level.
+RUN gosu hermes hermes --version
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]

@@ -160,15 +160,31 @@ fi
 # --- Tooling -----------------------------------------------------------------
 command -v docker >/dev/null 2>&1 || fail "docker not found on PATH"
 
-# --- Network -------------------------------------------------------------
+# --- Network / egress lockdown ------------------------------------------------
 # EVAL_SUITE_PLAN.md's non-negotiable rule: "Container network: the bridge
-# only." Plain `docker run` below does NOT enforce that by itself -- it
-# gives the container normal outbound access, restricted only by whatever
-# the host's own network/firewall does (and, now, an inbound path for the
-# dashboard port too). Tightening this (a dedicated no-internet Docker
-# network plus an explicit route to host.docker.internal, or host firewall
-# rules) is a follow-up, not solved here -- do not treat this script as
-# satisfying that rule as-is.
+# only." This used to be an open gap (plain `docker run` gives normal
+# outbound access, restricted only by whatever the host's own
+# network/firewall does) -- now enforced INSIDE the container instead:
+# entrypoint.sh sets iptables to default-DROP outbound, with the only
+# exception being a locally-run proxy that itself allows just one
+# destination (PROXY_ALLOWED_HOST), then irreversibly drops the capability
+# that could undo those rules before the --yolo agent runs. See
+# entrypoint.sh for the mechanism -- verified live (a capability-dropped
+# root process cannot modify iptables, confirmed by the kernel refusing it,
+# not assumed) before being built.
+#
+# --cap-add=NET_ADMIN below is what makes that possible at all -- and it's
+# exactly as temporary as entrypoint.sh's comments describe: granted to the
+# container, but gone from the process tree that runs agent commands by the
+# time any of them execute.
+#
+# Your model endpoint's hostname -- Modal in dev, on-prem in prod (see the
+# header comment on HERMES_CONFIG_DIR). Hostname, not URL: no scheme, no
+# path, no port.
+: "${PROXY_ALLOWED_HOST:?set PROXY_ALLOWED_HOST to your model endpoint hostname (see .env.example)}"
+if [[ "$PROXY_ALLOWED_HOST" == *"/"* ]] || [[ "$PROXY_ALLOWED_HOST" == *":"* ]]; then
+  fail "PROXY_ALLOWED_HOST should be a bare hostname (no scheme/path/port): got '$PROXY_ALLOWED_HOST'"
+fi
 
 docker build -f "$SCRIPT_DIR/Dockerfile.hermes" \
   --build-context hermes-src="$HERMES_SRC_DIR" \
@@ -176,12 +192,14 @@ docker build -f "$SCRIPT_DIR/Dockerfile.hermes" \
   "$SCRIPT_DIR"
 
 docker run -it --rm \
+  --cap-add=NET_ADMIN \
   --add-host=host.docker.internal:host-gateway \
   -e HERMES_DASHBOARD_PORT \
   -e HERMES_DASHBOARD_ARGS \
   -e HERMES_DASHBOARD_BASIC_AUTH_USERNAME \
   -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH \
   -e HERMES_DASHBOARD_BASIC_AUTH_SECRET \
+  -e PROXY_ALLOWED_HOST \
   -p "${HERMES_DASHBOARD_PORT}:${HERMES_DASHBOARD_PORT}" \
   -v "$CASE_DIR:/case-src:ro" \
   -v "$HERMES_CONFIG_DIR:/hermes-config-src:ro" \
