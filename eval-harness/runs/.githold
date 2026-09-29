@@ -1,0 +1,3 @@
+Placeholder so eval-harness/runs/ exists in a fresh checkout. Its actual
+contents (test-run output -- QUESTION_ANSWERS.md, trace exports) are
+gitignored; see eval-harness/.gitignore.

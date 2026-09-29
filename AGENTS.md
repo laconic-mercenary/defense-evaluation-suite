@@ -20,6 +20,19 @@ repo:
 orient a fresh session to the umbrella structure before it goes to the
 repo that actually matters for the task at hand.
 
+There is one workstream that belongs to neither repo:
+
+- **`EVAL_SUITE_PLAN.md`** (this directory) — the plan for automating the
+  currently-manual grading process into an eval harness. It is a **draft
+  discussion artifact, not a build order**; no code exists, and the
+  `eval-harness/` directory it proposes has not been created. If you're
+  asked to work on evaluation tooling, running the cases against models,
+  scoring automation, or framework selection, **read it first** — it
+  carries dated decisions with their reasoning, including two that were
+  later reversed, and re-deriving them wastes the record. Don't start
+  building from it without an explicit per-phase go-ahead; that
+  constraint is stated in the file itself and is deliberate.
+
 Once the two projects actually split into separate repositories, this
 file and `d-agent-test/`'s `.git` go away — don't add new durable content
 here that would need migrating; put it in whichever of the two repos it

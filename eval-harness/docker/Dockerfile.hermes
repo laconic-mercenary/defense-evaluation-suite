@@ -1,0 +1,116 @@
+# syntax=docker/dockerfile:1
+
+# Build (from this docker/ directory), pointing at your local hermes-agent
+# clone via HERMES_SRC_DIR:
+#   docker build -f Dockerfile.hermes \
+#     --build-context hermes-src="$HERMES_SRC_DIR" \
+#     -t eval-harness/hermes:pinned .
+#
+# Run: see run-case.sh.
+#
+# Single-stage, editable (`-e`) install -- not a size choice, a hard
+# requirement. Hermes's own build backend refuses to build a wheel/sdist at
+# all: "Building wheels or sdists for hermes-agent is not supported...
+# Hermes is distributed via the shell installer, Docker image, or Nix. If
+# you are developing, use an editable install instead" -- hit verbatim when
+# this file briefly tried a non-editable, multi-stage build (RuntimeError,
+# confirmed against a real build, not assumed). Editable mode means the
+# venv just points back at the source tree rather than containing real
+# copies of it, so that tree has to be present at runtime too -- true
+# multi-stage separation (copy only the finished venv, drop the monorepo
+# checkout) isn't achievable against this package as currently distributed.
+
+FROM python:3.14-slim
+
+# iptables/libcap2-bin/gosu/squid/gettext-base: the egress lockdown
+# entrypoint.sh sets up at container start (root sets firewall rules +
+# starts a locked-down local proxy, then irreversibly drops the capability
+# that could undo them before the --yolo agent runs) -- see entrypoint.sh
+# for the mechanism, verified live before being built here.
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        curl ca-certificates git bash ripgrep xz-utils \
+        iptables libcap2-bin gosu squid gettext-base && \
+    rm -rf /var/lib/apt/lists/*
+
+# Pinned, not "latest" -- otherwise a rebuild months from now silently
+# picks up a different uv, and any behavior change shows up as a mystery
+# build failure disconnected from anything actually changed here. Current
+# release verified via `pip3 index versions uv` at the time this was
+# pinned; bump deliberately, not by dropping the version pin.
+RUN pip install --no-cache-dir uv==0.12.19
+
+# The user the container actually runs as (see USER near the bottom). Fixed
+# UID/GID rather than a build arg matching a host user -- nothing here
+# needs that: /case-src is read-only regardless of who reads it, and /case
+# is populated by entrypoint.sh's own copy, not by a bind mount. On native
+# Linux (not Docker Desktop's macOS/Windows VM), if a case's evidence files
+# are somehow restricted to a specific host UID rather than world-readable,
+# reads from /case-src could still fail -- not expected with this repo's
+# fixture data, but worth knowing if it ever comes up.
+RUN groupadd --gid 1000 hermes && \
+    useradd --uid 1000 --gid hermes --create-home --shell /bin/bash hermes
+
+# Sourced from the "hermes-src" named build context, i.e. whatever local
+# clone HERMES_SRC_DIR pointed at when this image was built -- not fetched
+# or cloned in this Dockerfile. Whatever commit that checkout was on is
+# what gets built; there is no independent pin recorded inside the image
+# itself, so track which commit you built against alongside the image tag.
+# Placed under the non-root user's home because that is also where Hermes
+# itself will look for its own runtime state (~/.hermes) once it's running
+# as `hermes`, not `root`.
+ENV HERMES_HOME=/home/hermes/.hermes
+COPY --from=hermes-src . "$HERMES_HOME/hermes-agent"
+
+RUN cd "$HERMES_HOME/hermes-agent" && \
+    uv venv .venv --python 3.14 && \
+    . .venv/bin/activate && \
+    uv pip install -e ".[all]"
+
+RUN ln -sf "$HERMES_HOME/hermes-agent/.venv/bin/hermes" /usr/local/bin/hermes
+RUN /usr/local/bin/hermes --version
+
+# Case evidence is bind-mounted read-only at /case-src at `docker run` time
+# (see run-case.sh: -v <case dir>:/case-src:ro). Hermes cannot work
+# directly there: every case's TASK.md/AGENTS.md tells the agent to write
+# QUESTION_ANSWERS.md "in this directory" -- i.e. alongside AGENTS.md
+# itself -- which a `:ro` mount would refuse outright. entrypoint.sh copies
+# /case-src into /case (a plain, writable, container-local directory that
+# is never bind-mounted) before running the agent, so that write succeeds
+# without the host's real evidence ever being mounted writable. Each
+# container is single-use and discarded after one run, so the copy carries
+# no cross-run contamination risk.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY entrypoint-agent.sh /usr/local/bin/entrypoint-agent.sh
+COPY proxy/squid.conf.template /etc/squid/squid.conf.template
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/entrypoint-agent.sh
+
+# Everything the non-root user needs to read or write from here on: its own
+# home (the venv, the editable-install source tree, and Hermes's own
+# runtime state all live under there), and /case (entrypoint.sh's copy-out
+# target -- created here so it exists with the right owner before
+# WORKDIR/USER below, rather than appearing as a root-owned directory by
+# accident of WORKDIR creating it implicitly).
+RUN mkdir -p /case && chown -R hermes:hermes /home/hermes /case
+
+WORKDIR /case
+ENV HERMES_YOLO_MODE=1
+ENV DO_NOT_TRACK=1
+ENV PATH="/usr/local/bin:${PATH}"
+
+# No USER here, deliberately -- unlike before the egress lockdown was
+# added. entrypoint.sh (phase 1) now has to start as root: it sets the
+# iptables rules and starts the locked-down proxy, then irreversibly drops
+# root itself (capsh --drop=cap_net_admin + gosu hermes) before handing off
+# to entrypoint-agent.sh, which is what actually runs the --yolo agent. See
+# entrypoint.sh for the full mechanism.
+#
+# Re-run the version sanity check as the user that will actually run the
+# agent, not just as root during the earlier install step -- catches a
+# permissions mistake in the chown above at build time instead of at first
+# `docker run`. gosu, not USER, since this image no longer switches user at
+# the image level.
+RUN gosu hermes hermes --version
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]
