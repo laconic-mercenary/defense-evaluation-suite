@@ -1,50 +1,73 @@
 # d-agent-test
 
-Working umbrella for two independent projects. Right now everything here is
-one throwaway git repo (`origin` = `github.com/laconic-mercenary/d-agent-test`,
-currently private) that will eventually be split apart — don't push `main`
-as more than a private working copy in the meantime.
+A DFIR benchmark for evaluating LLM agents, plus a Docker harness to run
+one against it.
 
-- **`forensic-agent-tests/`** — DFIR benchmark cases (evidence + task
-  instructions) for evaluating LLM agents. Own `README.md`/`AGENTS.md`.
-- **`forensic-agent-answers/`** — held-out answer keys, grading rubrics,
-  and the full case-building methodology, paired by case slug with
-  `forensic-agent-tests/cases/`. Own `README.md`/`AGENTS.md` — **this is
-  where case-building work happens**, see its `AGENTS.md`.
-- **`EVAL_SUITE_PLAN.md`** — a *draft* plan for turning the manual
-  paste-and-grade process into an automated eval harness (agentic runner,
-  judge ensemble, cost/latency capture). **Discussion artifact, not a
-  build order — no code exists and nothing in it is approved.** It
-  proposes a third sibling directory (`eval-harness/`, working name)
-  which does not exist yet. Read it before starting any evaluation-tooling
-  work, so that work doesn't get re-derived from scratch.
+Cases hand an agent realistic evidence (Windows/Linux logs, network
+traffic, email) and grade it on reconstructing events, identifying the
+actor, judging whether it was malicious, and reporting soundly. Answer
+keys live in a separate directory the agent-under-test never sees.
 
-**Known gap, not yet fixed**: the root `.gitignore`'s
-`forensic-agent-answers/` entry is comment-only — there's no actual
-ignore pattern under it, so despite the intent that this directory stay
-out of this repo's history, it has in fact already been committed and
-pushed to the (private) `origin` remote above. This is a known, accepted
-state pending the actual repo split — see
-`forensic-agent-answers/AGENTS.md`'s "Known pitfalls" for detail. Don't
-assume the directory boundary is an access-control boundary yet.
+Umbrella for two independent projects plus the harness connecting them —
+one shared private git repo for now, splitting into separate repos later.
+Don't push `main` as more than a working copy.
 
-**This has a consequence for evaluation runs.** Since a single checkout
-holds both the cases and their answer keys, any host that runs an
-agent-under-test also holds every `GROUND_TRUTH.json` and
-`grading_schema.md` — and the AUT is, by design, an agent handed shell
-access and told to search the filesystem. Answer-key disclosure wouldn't
-just leak data; it would invalidate every score produced before and after
-it, with no signal that anything happened. Until the repo split, physical
-separation of the eval host from this checkout is the only real control
-available. See `EVAL_SUITE_PLAN.md`'s "Harness security posture".
+## Start here
 
-Eventually each moves into its own permanent repository, at which point this
-top-level folder and its `.git` go away.
+| You are... | Go to |
+|---|---|
+| A human running an agent against a case | [`HERMES_QUICKSTART.md`](HERMES_QUICKSTART.md) ([日本語版](HERMES_QUICKSTART.jp.md)) |
+| A human building/fixing/auditing a case | [`forensic-agent-answers/AGENTS.md`](forensic-agent-answers/AGENTS.md) |
+| A human wanting the case set and what each tests | [`forensic-agent-tests/README.md`](forensic-agent-tests/README.md) |
+| An **agent-under-test** assigned a case | `forensic-agent-tests/cases/<slug>/AGENTS.md` — nothing else here |
+| An **agent** doing general work in this repo | [`AGENTS.md`](AGENTS.md) |
+| Anyone wanting the full automated-pipeline plan | [`EVAL_SUITE_PLAN.md`](EVAL_SUITE_PLAN.md) — draft, beyond the spike below |
 
-When that split happens, `EVAL_SUITE_PLAN.md` (and any `eval-harness/`
-built from it) needs a home too — it belongs to neither existing project,
-since it consumes both. Worth deciding at split time rather than
-discovering it then. Its chosen framework, EvalScope, probably does
-*not* need a fork: `register_benchmark` is a plain decorator, so an
-external module should register. If the Phase 0 spike disproves that, a
-vendored fork becomes a *third* thing to re-home.
+**Agents-under-test**: read only your case's `AGENTS.md`. Never read
+`forensic-agent-answers/` — see Status below for what does and doesn't
+enforce that.
+
+## Layout
+
+- **`forensic-agent-tests/`** — the benchmark: 14 self-contained cases,
+  evidence + task instructions only.
+- **`forensic-agent-answers/`** — held-out answer keys and case-building
+  methodology, paired by slug. Case-building work happens here.
+- **`eval-harness/`** — Docker harness running Hermes/Qwen against a case,
+  egress-locked. A manual spike, not the automated pipeline. See
+  `HERMES_QUICKSTART.md`.
+- **`EVAL_SUITE_PLAN.md`** — draft plan for the full automated pipeline
+  `eval-harness/` is a step toward. Read before further eval-tooling work.
+- **`HERMES_QUICKSTART.md`** (日本語版: `HERMES_QUICKSTART.jp.md`) — steps
+  to actually run a case.
+
+## Sources
+
+Case evidence comes from two places:
+
+- **[EvidenceForge](https://github.com/Cisco-Talos/EvidenceForge)** (Cisco
+  Talos, MIT) — synthetic evidence generator, used for most cases.
+- **[JPCERT/CC](https://github.com/JPCERTCC/log-analysis-training_v2)** —
+  Japan's national CERT; two cases (`windows-log-search-basics`,
+  `windows-lateral-movement-ntds-exfil`) use real JPCERT-published
+  training data instead of synthetic evidence.
+
+Full sourcing detail, licensing, and candidate/rejected sources:
+`forensic-agent-answers/doc/SOURCES.md`.
+
+## Status & caveats
+
+**Answer keys aren't access-controlled, just conventionally separated.**
+`forensic-agent-answers/` is meant to be gitignored but isn't (a
+comment-only pattern) — it's already in this repo's history. Known,
+pending the split.
+
+**`eval-harness/` contains part of the blast radius**: its container only
+ever mounts one case's evidence, never `forensic-agent-answers/`, and
+can't reach the network beyond its model endpoint. Outside that container,
+on this checkout, both directories still sit side by side — full
+separation waits on the repo split.
+
+**At split time**, `EVAL_SUITE_PLAN.md`, `eval-harness/`, and
+`HERMES_QUICKSTART.md` all need new homes too — none belongs to either
+existing project.

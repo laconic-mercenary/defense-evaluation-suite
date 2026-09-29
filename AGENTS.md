@@ -23,15 +23,22 @@ repo that actually matters for the task at hand.
 There is one workstream that belongs to neither repo:
 
 - **`EVAL_SUITE_PLAN.md`** (this directory) — the plan for automating the
-  currently-manual grading process into an eval harness. It is a **draft
-  discussion artifact, not a build order**; no code exists, and the
-  `eval-harness/` directory it proposes has not been created. If you're
-  asked to work on evaluation tooling, running the cases against models,
-  scoring automation, or framework selection, **read it first** — it
-  carries dated decisions with their reasoning, including two that were
-  later reversed, and re-deriving them wastes the record. Don't start
-  building from it without an explicit per-phase go-ahead; that
-  constraint is stated in the file itself and is deliberate.
+  currently-manual grading process into a full eval pipeline (agentic
+  runner, judge ensemble, cost/latency capture). Still a **draft
+  discussion artifact beyond what's actually built** — read it first if
+  you're asked to work on evaluation tooling, scoring automation, or
+  framework selection; it carries dated decisions with their reasoning,
+  including two that were later reversed, and re-deriving them wastes the
+  record. Don't start building further from it without an explicit
+  per-phase go-ahead; that constraint is stated in the file itself and is
+  deliberate.
+- **`eval-harness/`** (this directory) — a real, working Docker harness
+  that runs Hermes (backed by Qwen) against a case, one manual run at a
+  time, behind an in-container egress lockdown. This *is* built and
+  tested — it's a spike validating the plan's mechanics, not the
+  automated pipeline `EVAL_SUITE_PLAN.md` still describes as future work.
+  See `HERMES_QUICKSTART.md` (this directory) to run it; see
+  `eval-harness/docker/*.sh` for how it actually works.
 
 Once the two projects actually split into separate repositories, this
 file and `d-agent-test/`'s `.git` go away — don't add new durable content
