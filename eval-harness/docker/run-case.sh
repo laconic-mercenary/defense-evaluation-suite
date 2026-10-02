@@ -178,6 +178,16 @@ command -v docker >/dev/null 2>&1 || fail "docker not found on PATH"
 # container, but gone from the process tree that runs agent commands by the
 # time any of them execute.
 #
+# --sysctl net.ipv6.conf.all.disable_ipv6=1 below switches IPv6 off for
+# this container entirely. entrypoint.sh's firewall is IPv4 iptables only --
+# IPv6 has its own, separate rule set (ip6tables) that nothing here sets --
+# so if Docker ever handed this container a routable IPv6 address (off by
+# default on Docker Engine's default bridge, but a daemon / Docker Desktop
+# setting can turn it on), outbound IPv6 would bypass the proxy entirely.
+# Set by Docker from outside at container creation; /proc/sys is mounted
+# read-only inside the container, so nothing in it -- the agent least of
+# all -- can turn it back on.
+#
 # Your model endpoint's hostname -- Modal in dev, on-prem in prod (see the
 # header comment on HERMES_CONFIG_DIR). Hostname, not URL: no scheme, no
 # path, no port.
@@ -191,8 +201,14 @@ docker build -f "$SCRIPT_DIR/Dockerfile.hermes" \
   -t eval-harness/hermes:pinned \
   "$SCRIPT_DIR"
 
+
+# disable IPv6 to further prevent any 
+# attempt to reach the internet ohter than through 
+# IPv4 and the proxy
+
 docker run -it --rm \
   --cap-add=NET_ADMIN \
+  --sysctl net.ipv6.conf.all.disable_ipv6=1 \
   --add-host=host.docker.internal:host-gateway \
   -e HERMES_DASHBOARD_PORT \
   -e HERMES_DASHBOARD_ARGS \
