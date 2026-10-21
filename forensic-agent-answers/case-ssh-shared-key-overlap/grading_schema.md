@@ -77,12 +77,16 @@ and articulates what *would* distinguish this from an active compromise.
 **Zero:** Concludes this is confirmed malicious activity, an active
 breach, or "definitely an attacker."
 
-## Q7 — Stakeholder summary (report generation, qualitative, 10 pts)
-**Rubric (LLM-judge, holistic 0-10):** Does the summary correctly convey
-(a) what was found — same identity, two concurrent sessions, two source
-IPs; (b) that this is not a confirmed attack, but a credential-hygiene
-concern worth acting on; (c) a proportionate recommendation (e.g., confirm
-with Priya and Marcus, rotate the key, remind on key-sharing policy — not
-"activate incident response" or "nothing to see here"); (d) plain language.
-An over-alarmed or a dismissive summary should both score lower than an
-appropriately scaled one.
+## Q7 — Stakeholder summary (10 pts)
+**Expected:** The summary conveys (a) what was found — same identity, two
+concurrent sessions, two source IPs; (b) that this is not a confirmed
+attack, but a credential-hygiene concern worth acting on; (c) a
+proportionate recommendation (e.g., confirm with Priya and Marcus, rotate
+the key, remind on key-sharing policy — not "activate incident response"
+or "nothing to see here"); (d) plain language.
+**Full credit:** All four of (a)–(d).
+**Partial:** (a) is correct, but the summary falls short on one of
+(b)–(d) — e.g., it skews over-alarmed or dismissive, or the
+recommendation isn't proportionate.
+**Zero:** (a) is wrong or missing, or the summary falls short on more
+than one of (b)–(d).
