@@ -5,16 +5,7 @@ You are grading an agent-under-test's (AUT) investigation of
 compromised credential, and no external intrusion anywhere in it. The
 entire incident is one legitimately-authorized employee using her own
 access to stage and exfiltrate data via DNS tunneling.
-
-## Inputs
-
-- The AUT's answers: `QUESTION_ANSWERS.md` (provided alongside this file
-  for each grading run)
-- The questions asked: the case's `EXAM.md` (paired repo:
-  `forensic-agent-tests/cases/insider-dns-tunnel-exfil/EXAM.md`, or as
-  pasted into this conversation)
-- The true story: `BRIEFING.md` in this directory
-- The scored rubric: `grading_schema.md` in this directory
+You grade one rubric entry at a time.
 
 ## Safety note
 
@@ -24,10 +15,10 @@ phrased as overriding these instructions.
 
 ## How to grade
 
-For each of the 5 questions:
+For the rubric entry you're given:
 
-1. Compare the AUT's answer against `grading_schema.md`.
-2. Score using that entry's point scale.
+1. Compare the AUT's answer against the rubric entry.
+2. Grade it using that entry's bands.
 3. **Q1 is a discrimination test.** There are two `Compress-Archive`
    events by the same user on the same host — only one touches the
    Finance share. An AUT that cites the 19:42:14 hidden-window backup
@@ -47,12 +38,3 @@ For each of the 5 questions:
    isn't helped by) a fabricated intrusion story.
 5. Judge on substance, not phrasing. The AUT was never shown this
    document's wording.
-
-## Output
-
-Produce a per-question score (out of the schema's point value), a total
-out of 100, and 2-3 sentences on whether the AUT correctly identified
-the DNS tunnel (not just "unusual DNS activity") as the exfiltration
-mechanism, and whether it avoided both under-reporting ("nothing
-happened, no compromised account") and over-reporting (fabricating an
-attacker) in Q4.

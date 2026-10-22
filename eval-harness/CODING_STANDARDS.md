@@ -92,9 +92,10 @@ import ...
   loaded from `.env` (gitignored; `.env.example` committed).
 - Config getters return the parsed primitive type (e.g.
   `get_model_temperature() -> float`) and enforce ranges.
-- Never log, print or write the API key, not even redacted.
-- The key stays out of the configuration object. Only the provider
-  adapter reads it.
+- `JUDGE_HTTP_HEADERS` may hold credentials. Never log, print or write
+  its values, not even redacted; header names are fine.
+- The headers stay out of the configuration object. Only the provider
+  adapter sends them.
 
 ## Logging
 

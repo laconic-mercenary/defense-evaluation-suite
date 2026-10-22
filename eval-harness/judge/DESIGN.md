@@ -114,9 +114,11 @@ inputs:  QUESTION_ANSWERS.md + case's grading_schema.md, BRIEFING.md, AGENTS.md
   on conflict.
   - Excluded: `EXAM.md` (asks for more than the rubric grades, inviting
     side rules); `supporting/` (contradicts the answer keys).
-  - Prerequisite: split each case's grader `AGENTS.md` by job. Grading
-    guidance stays; the manual workflow (inputs, output) moves to a new
-    `README.md`. Done via `forensic-agent-answers`' own process.
+  - Split each case's grader `AGENTS.md` by job (done 2026-10-22, all 14
+    cases). `AGENTS.md` keeps the safety note and grading guidance, worded
+    per rubric entry; the manual workflow (Inputs, Output, case-level
+    summaries) moved verbatim to a new `README.md`. The case-building
+    procedure (`forensic-agent-answers/AGENTS.md`, step 6) now says so.
 - **One model call per rubric entry** (2026-10-20). A Python loop goes
   through `grading_schema.md`'s `## Q<n>` entries in order. Each call gets
   that one entry, the whole answer file, `BRIEFING.md` and grader
@@ -164,16 +166,61 @@ inputs:  QUESTION_ANSWERS.md + case's grading_schema.md, BRIEFING.md, AGENTS.md
   - Operator chooses the provider per run, including whether answer keys
     may leave the lab and keeping the judge out of the Qwen family. No
     allowlist in code; R9 makes it auditable afterwards.
+- **Model reply format** (2026-10-21). One flat JSON object, no code
+  fences (the prompt says so), fields in this order:
+  `rubric_quote`, `answer_quote`, `reasons`, `band` (`full | partial |
+  zero`), `confidence` (`high | med | low`).
+  - Order is deliberate: the model writes top to bottom, so evidence, then
+    reasoning, then verdict, then how sure it is of that verdict.
+  - One quote of each kind. Code checks both exist verbatim (R5).
+  - Only the judgment comes from the model. IDs, case, rubric entry,
+    points and hashes are attached by code in the harness record.
+  - No answer to the question: `answer_quote` is empty and `band` is
+    `zero`. Valid; code logs a warning and the run continues.
+  - Zero reached by default (no band's conditions met): `rubric_quote` is
+    exactly the sentinel `"Zero - default"`, accepted only with `band`
+    `zero`. The prompt gives the model this exact string.
+- **Evidence log** (2026-10-22). A separate logger (propagation off)
+  appends one JSON line per model call to a running file,
+  `eval-harness/logs/judge-evidence.jsonl` (gitignored), kept across runs:
+  run ID, answer file, question, repeat, system message, user message, raw
+  reply, error. Failed calls are recorded too. Holds answer keys: protect
+  it like `forensic-agent-answers/`. Known risk: on-prem without Docker, an
+  agent run on the same machine could read it.
+- **Log level and HTTP errors** (2026-10-22). `--log-level
+  debug|info|warning|error` (default `info`) is a command-line flag, not a
+  `.env` setting: logging starts before `.env` is loaded, and `--help` must
+  work without one. On an HTTP error status, the first 500 characters of
+  the server's response body are logged (it says why, e.g. "model not
+  found"); the request never is.
+- **Grade output** (2026-10-22). One JSON line per grade (entry × repeat)
+  on stdout: `run` (run ID, answer file, reading-rules version, config,
+  hashes of all six input files: R9), question, heading, max points,
+  repeat, points, provisional, the validated reply, and `quotes_at`: each
+  quote's `path:line` (R5; the rubric quote is searched from its own
+  entry's start; null for the zero-band exceptions). Logs go to stderr,
+  so `> grades.jsonl` captures only grades. Run ID: UTC start time plus a
+  short random suffix.
 - **Configuration and secrets** (2026-10-21). All settings come from
   environment variables, loaded from `.env` (gitignored, with a committed
   `.env.example`). Model name, provider URL, model version, K and
-  temperature are configuration; the API key is a secret.
-  - Ranges (inclusive): K 1–3 (integer), temperature 0.0–1.0 (float). A
-    missing or out-of-range value exits the program.
+  temperature are configuration; `JUDGE_HTTP_HEADERS` is a secret.
+  - `JUDGE_HTTP_HEADERS` (2026-10-22, replaces `JUDGE_API_KEY`): required,
+    `Name=value; Name=value`, split on `;` and on each pair's first `=`.
+    Covers Bearer, `x-api-key`-style and proxy-auth headers alike. Rejected
+    at start-up: no `=`, names other than letters/digits/`-`, empty values,
+    line breaks (header injection), duplicates, and `Content-Type` (set by
+    the adapter). Only names are logged. Limitation: a value can't contain
+    `;` (so no `Cookie` header).
+  - Ranges (inclusive): K 1–3 (integer), max tokens 256–32768 (integer,
+    `JUDGE_MAX_TOKENS`, 2048 in `.env.example`), temperature 0.0–1.0
+    (float). A reply cut off at max tokens (`finish_reason: length`) fails
+    with a message naming the setting. A missing or out-of-range value
+    exits the program.
   - Configuration isn't versioned in git, so each report copies the
-    configuration values it ran with (R9), never the key.
-  - The key is never logged, under any circumstances, redaction included.
-    It stays out of the configuration object and is read only by the
+    configuration values it ran with (R9), never the headers.
+  - Header values are never logged, under any circumstances, redaction included.
+    They stay out of the configuration object and are sent only by the
     provider adapter.
   - `.env` is acceptable for v1 because the key guards a model server on
     an isolated network. Revisit when a vendor adapter, with an external

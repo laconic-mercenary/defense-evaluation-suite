@@ -21,6 +21,10 @@ ARG_ANSWER_FILE = "answer_file"
 ARG_ANSWERS_DIR = "answers_dir"
 ARG_LANG_FLAG = "--lang"
 ARG_LANG = "lang"
+ARG_LOG_LEVEL_FLAG = "--log-level"
+ARG_LOG_LEVEL = "log_level"
+LOG_LEVELS = ("debug", "info", "warning", "error")
+DEFAULT_LOG_LEVEL = "info"
 
 
 # TYPES
@@ -31,6 +35,7 @@ class Args:
     answer_file: str
     answers_dir: str
     lang: str
+    log_level: str
 
 
 @dataclass(frozen=True)
@@ -53,6 +58,16 @@ class InputFile:
     sha256: str
 
 
+@dataclass(frozen=True)
+class RunFiles:
+    """The four files one judge run reads, each read into memory and hashed."""
+
+    answer: InputFile
+    rubric: InputFile
+    briefing: InputFile
+    grader_agents: InputFile
+
+
 # PUBLIC FUNCTIONS
 def parse_args(argv: list[str]) -> Args:
     """Parse argv (without the program name) into Args.
@@ -65,21 +80,47 @@ def parse_args(argv: list[str]) -> Args:
     LOGGER.debug("parse_args(%s)", argv)
     lang = _read_lang(argv)
     namespace = _build_parser(lang).parse_args(argv)
-    return Args(
+    args = Args(
         answer_file=getattr(namespace, ARG_ANSWER_FILE),
         answers_dir=getattr(namespace, ARG_ANSWERS_DIR),
         lang=getattr(namespace, ARG_LANG),
+        log_level=getattr(namespace, ARG_LOG_LEVEL),
     )
+    return args
 
 
-def get_answer_file_path(args: Args) -> str | Exception:
-    """Return the agent's answer-file path from args once validated, or the error."""
-    LOGGER.debug("get_answer_file_path(%s)", args.answer_file)
-    path = validate_md_path(args.answer_file)
-    if isinstance(path, Exception):
-        LOGGER.error("cannot get the answer file path")
-        return path
-    return path
+def load_run_files(args: Args) -> RunFiles | Exception:
+    """Return the answer file and the three case files from args, each read
+    into memory and hashed, or the first error. Logs each file's hash.
+    """
+    LOGGER.debug("load_run_files()")
+    case_paths = get_case_file_paths(args)
+    if isinstance(case_paths, Exception):
+        LOGGER.error("cannot load the run's files")
+        return case_paths
+    paths = (args.answer_file, case_paths.rubric, case_paths.briefing, case_paths.grader_agents)
+    read_files = read_input_files(paths)
+    if isinstance(read_files, Exception):
+        LOGGER.error("cannot load the run's files")
+        return read_files
+    answer, rubric, briefing, grader_agents = read_files
+    return RunFiles(answer=answer, rubric=rubric, briefing=briefing, grader_agents=grader_agents)
+
+
+def read_input_files(paths: tuple[str, ...]) -> tuple[InputFile, ...] | Exception:
+    """Return each file in paths read into memory and hashed, in order, or the
+    first error. Logs each file's hash.
+    """
+    LOGGER.debug("read_input_files(%d paths)", len(paths))
+    read_files = []
+    for path in paths:
+        read_file = read_input_file(path)
+        if isinstance(read_file, Exception):
+            LOGGER.error("cannot read input files")
+            return read_file
+        LOGGER.info("input file %s sha256=%s", read_file.path, read_file.sha256)
+        read_files.append(read_file)
+    return tuple(read_files)
 
 
 def get_case_file_paths(args: Args) -> CaseFilePaths | Exception:
@@ -203,6 +244,13 @@ def _build_parser(lang: str) -> argparse.ArgumentParser:
     parser.add_argument(ARG_ANSWER_FILE, help=iso.get_string(lang, iso.MSG_ARG_ANSWER_FILE_HELP))
     parser.add_argument(ARG_ANSWERS_DIR, help=iso.get_string(lang, iso.MSG_ARG_ANSWERS_DIR_HELP))
     _add_lang_argument(parser, lang)
+    parser.add_argument(
+        ARG_LOG_LEVEL_FLAG,
+        dest=ARG_LOG_LEVEL,
+        choices=LOG_LEVELS,
+        default=DEFAULT_LOG_LEVEL,
+        help=iso.get_string(lang, iso.MSG_ARG_LOG_LEVEL_HELP),
+    )
     return parser
 
 

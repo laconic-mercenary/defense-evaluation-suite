@@ -123,8 +123,15 @@ real answer leak once.
 
 6. **Write the answer bundle** in `case-<slug>/` in this repo:
    `BRIEFING.md` (true story, decoys, undetermined facts, known evidence
-   quirks), `AGENTS.md` (grader instructions), `grading_schema.md`
-   (per-question rubric, 1:1 with `EXAM.md`).
+   quirks), `grading_schema.md` (per-question rubric, 1:1 with `EXAM.md`),
+   and the grader instructions split in two:
+   - `AGENTS.md`: read verbatim by the automated judge, which grades one
+     rubric entry at a time. Only the safety note and case-specific
+     grading guidance. No Inputs or Output sections, no references to
+     files the judge doesn't receive (`EXAM.md`, `supporting/`), and refer
+     to "the rubric entry", not `grading_schema.md`.
+   - `README.md`: the manual grading workflow (Inputs, Output, and any
+     case-level summary a person should write).
 
 7. **Sanity-check every exam question against the raw data for internal
    contradictions** before finalizing — mismatched process lineage, causal

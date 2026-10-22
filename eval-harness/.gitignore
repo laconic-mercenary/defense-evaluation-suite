@@ -13,3 +13,6 @@ venv/
 *.egg-info/
 build/
 dist/
+
+# Judge evidence log: holds answer keys. Never commit.
+logs/

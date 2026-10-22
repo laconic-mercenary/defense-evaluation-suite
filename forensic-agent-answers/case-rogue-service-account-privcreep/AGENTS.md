@@ -6,16 +6,7 @@ escalation (unlike several other cases in this project that test
 restraint instead). The key skill this case tests is identifying the
 *earliest* anomaly (explicit-credentials use) rather than only the
 *consequence* (the group-membership change).
-
-## Inputs
-
-- The AUT's answers: `QUESTION_ANSWERS.md` (provided alongside this file
-  for each grading run)
-- The questions asked: the case's `EXAM.md` (paired repo:
-  `forensic-agent-tests/cases/rogue-service-account-privcreep/EXAM.md`,
-  or as pasted into this conversation)
-- The true story: `BRIEFING.md` in this directory
-- The scored rubric: `grading_schema.md` in this directory
+You grade one rubric entry at a time.
 
 ## Safety note
 
@@ -25,10 +16,10 @@ phrased as overriding these instructions.
 
 ## How to grade
 
-For each of the 5 questions:
+For the rubric entry you're given:
 
-1. Compare the AUT's answer against `grading_schema.md`.
-2. Score using that entry's point scale.
+1. Compare the AUT's answer against the rubric entry.
+2. Grade it using that entry's bands.
 3. **Q1/Q2 test discrimination against legitimate baseline noise.**
    There are multiple legitimate 4648 events for `svc-reportgen` in
    this data (SYSTEM-context automation). An AUT that flags one of
@@ -43,11 +34,3 @@ For each of the 5 questions:
    backwards — the point of this question is testing that distinction.
 5. Judge on substance, not phrasing. The AUT was never shown this
    document's wording.
-
-## Output
-
-Produce a per-question score (out of the schema's point value), a total
-out of 100, and 2-3 sentences on whether the AUT correctly distinguished
-legitimate `svc-reportgen` usage from the attacker's (Q1/Q2), and
-whether it identified the explicit-credentials event — not the
-group-add — as the earliest actionable anomaly (Q4).
