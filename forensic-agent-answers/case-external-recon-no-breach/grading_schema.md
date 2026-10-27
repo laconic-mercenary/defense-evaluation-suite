@@ -65,11 +65,12 @@ recommendation scaled to reality (e.g., "close SSH to the internet on
 WEB-01" / "confirm no other DMZ hosts have the same exposure" — not
 "activate incident response" and not "nothing happened, no action
 needed").
-**Full credit (fact-finding, 10 pts):** Correctly concludes no
-compromise, checked across hosts (not just the web server).
-**Full credit (report, LLM-judge, holistic, 10 pts):** Proportionate
-tone, includes the SSH-exposure recommendation, doesn't over-alarm or
-dismiss.
-**Zero (either half):** Asserts compromise occurred with no supporting
-evidence; or a report that either escalates to "breach" language or
+Two parts: (1) fact-finding — correctly concludes no compromise, checked
+across hosts (not just the web server); (2) report — proportionate tone,
+includes the SSH-exposure recommendation, doesn't over-alarm or dismiss.
+Part (1) fails if the answer asserts compromise with no supporting
+evidence. Part (2) fails if the report escalates to "breach" language or
 recommends no action at all despite the real policy-gap finding.
+**Full credit:** Both parts met.
+**Partial:** Exactly one of the two parts met.
+**Zero:** Neither part met.

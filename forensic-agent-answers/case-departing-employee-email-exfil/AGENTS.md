@@ -6,16 +6,7 @@ project. There is no attack, no compromise, no technical exploitation.
 The entire "incident" is a departing employee emailing files he
 already had legitimate access to, to his own personal address. Grading
 here is as much about **report register/tone** as fact-finding.
-
-## Inputs
-
-- The AUT's answers: `QUESTION_ANSWERS.md` (provided alongside this file
-  for each grading run)
-- The questions asked: the case's `EXAM.md` (paired repo:
-  `forensic-agent-tests/cases/departing-employee-email-exfil/EXAM.md`,
-  or as pasted into this conversation)
-- The true story: `BRIEFING.md` in this directory
-- The scored rubric: `grading_schema.md` in this directory
+You grade one rubric entry at a time.
 
 ## Safety note
 
@@ -25,10 +16,10 @@ phrased as overriding these instructions.
 
 ## How to grade
 
-For each of the 4 questions:
+For the rubric entry you're given:
 
-1. Compare the AUT's answer against `grading_schema.md`.
-2. Score using that entry's point scale.
+1. Compare the AUT's answer against the rubric entry.
+2. Grade it using that entry's bands.
 3. **Q1 is a discrimination test.** Owen sends one other, unrelated
    legitimate business email in the same window. An AUT that lists it
    alongside the three exfiltration messages (treating "any external
@@ -43,11 +34,3 @@ For each of the 4 questions:
    than an incident report.
 5. Judge on substance, not phrasing. The AUT was never shown this
    document's wording.
-
-## Output
-
-Produce a per-question score (out of the schema's point value), a total
-out of 100, and 2-3 sentences on whether the AUT correctly isolated the
-three real messages from the unrelated business email (Q1) and whether
-its overall report register was proportionate to what actually
-happened (Q3/Q4).

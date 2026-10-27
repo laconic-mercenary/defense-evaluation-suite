@@ -48,19 +48,18 @@ correct but doesn't explain why it's still worth reporting.
 **Zero:** Frames this as a security breach/compromise/attack, or
 concludes there's nothing worth reporting at all.
 
-## Q4 — Report register (30 pts, qualitative)
+## Q4 — Report register (30 pts)
 **Expected:** A brief, professional note appropriate for an HR/DLP
 handoff — states what was sent, to whom, when, and recommends next
 steps (e.g., legal/HR review of the departure, no technical remediation
 needed). No alarmist language ("attacker," "breach," "compromised,"
 "exfiltration" used as if describing an attack). Also not dismissive —
 should read as something meant to actually be acted on.
-**Grade holistically, not as a per-fact checklist:**
-- **Full credit (25-30 pts):** Register matches an HR/DLP handoff,
-  substantively grounded in Q1's facts, actionable next step given.
-- **Partial (12-24 pts):** Correct substance but tone skews noticeably
-  alarmist (treats this like an incident report) or noticeably
-  dismissive (no clear recommendation, reads as an afterthought).
-- **Low/zero (0-11 pts):** No draft given, explicitly frames this as a
-  security incident/breach requiring technical incident response, or
-  the content is factually disconnected from Q1's findings.
+**Full credit:** Register matches an HR/DLP handoff, substantively
+grounded in Q1's facts, actionable next step given.
+**Partial:** Correct substance but tone skews noticeably alarmist
+(treats this like an incident report) or noticeably dismissive (no
+clear recommendation, reads as an afterthought).
+**Zero:** No draft given, explicitly frames this as a security
+incident/breach requiring technical incident response, or the content
+is factually disconnected from Q1's findings.

@@ -1,2 +1,18 @@
 runs/*
 !runs/.githold
+
+# Secrets: the judge's .env holds the API key. .env.example is committed.
+.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Judge evidence log: holds answer keys. Never commit.
+logs/

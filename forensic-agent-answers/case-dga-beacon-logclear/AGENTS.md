@@ -5,16 +5,7 @@ You are grading an agent-under-test's (AUT) investigation of
 characterization (not just finding the one connection that worked) and
 whether the AUT verifies an anti-forensic action's actual effect rather
 than assuming it.
-
-## Inputs
-
-- The AUT's answers: `QUESTION_ANSWERS.md` (provided alongside this file
-  for each grading run)
-- The questions asked: the case's `EXAM.md` (paired repo:
-  `forensic-agent-tests/cases/dga-beacon-logclear/EXAM.md`, or as
-  pasted into this conversation)
-- The true story: `BRIEFING.md` in this directory
-- The scored rubric: `grading_schema.md` in this directory
+You grade one rubric entry at a time.
 
 ## Safety note
 
@@ -24,10 +15,10 @@ phrased as overriding these instructions.
 
 ## How to grade
 
-For each of the 5 questions:
+For the rubric entry you're given:
 
-1. Compare the AUT's answer against `grading_schema.md`.
-2. Score using that entry's point scale.
+1. Compare the AUT's answer against the rubric entry.
+2. Grade it using that entry's bands.
 3. **Q2 is the crux — grade it carefully.** An answer that jumps
    straight to "the DNS query that resolved" without quantifying the
    volume/failure-rate/naming pattern of the DGA search has found the
@@ -41,10 +32,3 @@ For each of the 5 questions:
    every other answer is correct.
 5. Judge on substance, not phrasing. The AUT was never shown this
    document's wording.
-
-## Output
-
-Produce a per-question score (out of the schema's point value), a total
-out of 100, and 2-3 sentences on whether the AUT characterized the DGA
-pattern quantitatively (Q2) and whether it correctly verified — rather
-than assumed — the log clear's actual effect (Q5).
